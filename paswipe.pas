@@ -32,46 +32,44 @@
 
 unit paswipe;
 
-{$i gsx.inc}
-{$ifdef DEBUG}
-  {$D+}
-  {$define PROFILE}
-{$endif}
+{$DEFINE PROFILE}
 
 interface
 
 uses
-  SysUtils, Forms, Classes, SeedGatherer;
+  SysUtils, Classes;
 
 type
   TWipeMode = (wmDelete, wmSimple, wmDod, wmGutmann);
   TWipeType = (wtDeleteFile, wtRemoveDir);
-  TProgressProc = procedure(const Value, Total: Int64; const WipeType: TWipeType; const CurFile: string);
+  TProgressProc = procedure(const Value, Total: Int64; const WipeType: TWipeType;
+    const CurFile: string; var Abort: boolean);
 
-function WipeFiles(const Files: array of string; const Mode: TWipeMode;
-  const ShowProgress: boolean = false): boolean;
+function WipeFiles(const Files: array of string; const Mode: TWipeMode): boolean;
 function WipeFile(const Filename: string; const Mode: TWipeMode): boolean;
 procedure WipeSetProgressProc(Proc: TProgressProc);
+
+{$ifdef PROFILE}
+var
+  gTicks: Int64 = 0;
+{$ENDIF}
 
 implementation
 
 uses
-//  wipeprogress,
-  tools,
-  sxoptions,
-  globals,
-  Logging
-{$ifdef USE_ISAAC}
-  , isaac
-{$endif}
+  FileUtil,
+  isaac
 {$ifdef PROFILE}
+  {$IFDEF FPC}
+  , LCLIntf
+  {$ELSE}
   , Windows
+  {$ENDIF}
 {$endif}
   ;
   
 const
   WipeBuffSize = 4095;    { 4 KB }
-  BOOLSTR: array[Boolean] of string = ('False', 'True');
 
 type
   TWipeFile = record
@@ -85,16 +83,23 @@ type
   PWipeFile = ^TWipeFile;
 
 var
-  ProgressProc: TProgressProc;
-  abort: boolean = false;
-  Logger: TLogging = nil;
-{$ifdef USE_ISAAC}
+  gProgressProc: TProgressProc = nil;
   gIsaac: TIsaac;
-{$endif}
-  
+  gAbort: boolean = false;
+
 function IsFileChar(const c: Char): boolean;
 begin
   Result := c in ['A'..'Z', 'a'..'z', '0'..'9', '_'];
+end;
+
+function GetFileSize(const AFilename: string): Int64;
+var
+  ts: TSearchRec;
+begin
+  if FindFirst(AFilename, faAnyFile, ts) = 0 then
+    Result := ts.Size
+  else
+    Result := 0;
 end;
 
 procedure RandomizeBuffer(F: PWipeFile);
@@ -103,64 +108,20 @@ var
 begin
   // Fill the buffer with random data
   for i := Low(F^.Buffer) to High(F^.Buffer) do
-{$ifdef USE_ISAAC}
     F^.Buffer[i] := gIsaac.ByteVal(255);
-{$else}
-    F^.Buffer[i] := Random(256);
-{$endif}
-end;
-
-procedure WipeProgressProc(const Value, Total: Int64; const WipeType: TWipeType; const CurFile: string);
-{$ifndef FPC}
-resourcestring
-{$else}
-const
-{$endif}
-  // Changed by Vitus in 201211
-  // SWipeFile = 'Lösche Datei: %s';
-  SWipeFile = 'Lösche Datei:'#13#10'%s';
-  SRemoveDir = 'Entferne Verzeichnis: %s';
-  SCurrentFile = 'Aktuelle Datei (%d %%)';
-  SOverall = 'Gesamtfortschritt (%d %%)';
-begin
-{  if Assigned(WipeProgressDlg) then begin
-    // Value, Total = Percent done
-    // CurFile = current file, when you call wipe_secure_unlink it is nil, otherwise
-    // it points to the filename
-    if CurFile <> '' then begin
-      case WipeType of
-        wtDeleteFile: WipeProgressDlg.lblPrompt.Caption := Format(SWipeFile, [CurFile]);
-        wtRemoveDir:  WipeProgressDlg.lblPrompt.Caption := Format(SRemoveDir, [CurFile]);
-      end;
-    end;
-    if ((Abs(WipeProgressDlg.ProgressBar.Position - Value) > 10) or (Value = 0)) then begin
-      WipeProgressDlg.ProgressBar.Position := Value;
-      WipeProgressDlg.lblCur.Caption := Format(SCurrentFile, [Value]);
-    end;
-    if ((Abs(WipeProgressDlg.ProgressBar1.Position - Total) > 2) or (Total = 0)) then begin
-      WipeProgressDlg.ProgressBar1.Position := Total;
-      WipeProgressDlg.lblOverall.Caption := Format(SOverall, [Total]);
-    end;
-  end;
-  Application.ProcessMessages;   // Allow Cancel Click
-  end;}
-end;
-
-procedure CancelClick;
-begin
-  // Cancel Button clicked
-  abort := true;
 end;
 
 var
   bytes_overwritten, progress_size: Int64;
   total_size, total_bytes_written: Int64;
 
-procedure UpdateProgress(const Size: Int64; const WipeType: TWipeType; const ACurFile: string);
+procedure UpdateProgress(const Size: Int64; const WipeType: TWipeType;
+  const ACurFile: string);
 var
   pf, pt: Int64;
+  abort: boolean;
 begin
-  if Assigned(ProgressProc) then begin
+  if Assigned(gProgressProc) then begin
     if Size > 0 then begin
       Inc(bytes_overwritten, Size);
       Inc(total_bytes_written, Size);
@@ -173,13 +134,16 @@ begin
       pt := Trunc((total_bytes_written / total_size) * 100)
     else
       pt := 0;
-    ProgressProc(pf, pt, WipeType, ACurFile);
+    gProgressProc(pf, pt, WipeType, ACurFile, abort);
+    gAbort := abort;
   end;
 end;
 
 function WipeDeleteDir(const ADir: string): boolean;
 begin
   UpdateProgress(0, wtRemoveDir, ADir);
+  if gAbort then
+    Exit;
   Result := RemoveDir(ADir);
 end;
 
@@ -194,11 +158,7 @@ function WipeDeleteFile(F: PWipeFile): boolean;
     l := 1;
     while l < 11 do begin
       // Make new filename 10 Characters long
-{$ifdef USE_ISAAC}
       c := Char(gIsaac.ByteVal(127));
-{$else}
-      c := Char(Random(128));
-{$endif}
       if IsFileChar(c) then begin
         Result[l] := c;
         Inc(l);
@@ -224,17 +184,19 @@ end;
 procedure Overwrite(F: PWipeFile);
 var
   blocks, remain: integer;
+  abort: boolean;
   written: Int64;
 begin
+  abort := false;
   // Overwrite the file with F.Buffer
   blocks := F^.Size div F^.BuffSize;
   remain := F^.Size mod F^.BuffSize;
   Seek(F^.Fi, 0);
   while blocks > 0 do begin
-    if abort then
-      Exit;
     written := F^.BuffSize;
     UpdateProgress(written, wtDeleteFile, IncludeTrailingBackslash(F^.Path) + F^.Name);
+    if gAbort then
+      Exit;
     BlockWrite(F^.Fi, F^.Buffer, written);
     if written = 0 then
       Break;
@@ -242,6 +204,8 @@ begin
   end;
   if (remain > 0) and (not abort) then begin
     UpdateProgress(remain, wtDeleteFile, IncludeTrailingBackslash(F^.Path) + F^.Name);
+    if gAbort then
+      Exit;
     BlockWrite(F^.Fi, F^.Buffer, remain);
   end;
 end;
@@ -251,7 +215,7 @@ var
   i: integer;
 begin
   for i := 0 to NumPasses - 1 do begin
-    if abort then
+    if gAbort then
       Exit;
     RandomizeBuffer(F);
     Overwrite(F);
@@ -280,7 +244,7 @@ end;
 
 procedure WipeSetProgressProc(Proc: TProgressProc);
 begin
-  ProgressProc := Proc;
+  gProgressProc := Proc;
 end;
 
 function WipeFile(const Filename: string; const Mode: TWipeMode): boolean;
@@ -292,19 +256,21 @@ var
 {$endif}
 begin
   Result := false;
-  if abort then begin
+  if gAbort then begin
     Exit;
   end;
-  if FileExists(Filename) and (not DirExists(Filename)) then begin
+  if FileExists(Filename) and (not DirectoryExists(Filename)) then begin
 {$ifdef PROFILE}
-    start_tick := GetTickCount;
+    start_tick := {$IFDEF FPC}LCLIntf.{$ENDIF}GetTickCount;
 {$endif}
     UpdateProgress(0, wtDeleteFile, Filename);
+    if gAbort then
+      Exit;
     FileSetAttr(Filename, 0);
     New(wf);
     wf^.Name := ExtractFileName(Filename);
     wf^.Path := ExtractFileDir(Filename);
-    wf^.Size := tools.GetFileSize(Filename);
+    wf^.Size := GetFileSize(Filename);
     AssignFile(wf^.Fi, Filename);
     if (wf^.Size = 0) or (Mode = wmDelete) then begin
       Result := WipeDeleteFile(wf);
@@ -384,7 +350,7 @@ begin
           OverwriteRandom(4, wf);
         end;
     end;
-    if abort then begin
+    if gAbort then begin
       Result := false;
       Dispose(wf);
       Exit;
@@ -396,11 +362,9 @@ begin
     FillChar(wf^.Buffer, wf^.BuffSize, 0);   // Burn Memory
     Dispose(wf);
 {$ifdef PROFILE}
-    ticks := GetTickCount - start_tick;
-    if ticks > 0 then
-      DebugStr(Format('time = %d ms; size = %d byte; speed = %f MB/s', [ticks, progress_size, ((progress_size / (1024*1024)) / ticks)*1000]));
+    gTicks := {$IFDEF FPC}LCLIntf.{$ENDIF}GetTickCount - start_tick;
 {$endif}
-  end else if DirExists(Filename) then begin
+  end else if DirectoryExists(Filename) then begin
     Result := WipeDeleteDir(Filename);
   end;
 end;
@@ -409,7 +373,7 @@ procedure FindFiles(const AName: string; Files: TStringList);
 var
   r: TSearchRec;
 begin
-  if DirExists(AName) then begin
+  if DirectoryExists(AName) then begin
     if FindFirst(IncludeTrailingBackslash(AName) + '*.*', faAnyFile, r) = 0 then begin
       repeat
         if (r.Name = '.') or (r.Name = '..') then
@@ -421,13 +385,12 @@ begin
       Files.Add(AName);
     end;
   end else begin
-    Inc(total_size, tools.GetFileSize(AName));
+    Inc(total_size, GetFileSize(AName));
     Files.Add(AName);
   end;
 end;
 
-function WipeFiles(const Files: array of string; const Mode: TWipeMode;
-  const ShowProgress: boolean = false): boolean;
+function WipeFiles(const Files: array of string; const Mode: TWipeMode): boolean;
 var
   i: integer;
   r: boolean;
@@ -436,15 +399,6 @@ label
   leave;
 begin
   Result := true;
-//  if ShowProgress then begin
-{    WipeSetProgressProc(WipeProgressProc);
-    WipeProgressDlg := TWipeProgressDlg.Create(Application);
-    WipeProgressDlg.CancelProc := CancelClick;
-    WipeProgressDlg.Caption := 'GnuPG - Sicher Löschen/Wipen';
-    WipeProgressDlg.Show;
-    Application.ProcessMessages;}
-//  end else
-    WipeSetProgressProc(nil);
   sl := TStringList.Create;
   total_size := 0;
   total_bytes_written := 0;
@@ -476,38 +430,26 @@ begin
         total_size := total_size * 35;
      end;
   end;
-//  if ShowProgress then
-//    WipeProgressDlg.TotalSize := total_size;
   for i := 0 to sl.Count - 1 do begin
-    if abort then goto leave;
+    if gAbort then
+      goto leave;
     r := WipeFile(sl[i], Mode);
     Result := Result and r;
   end;
 leave:
   sl.Free;
-//  if Assigned(WipeProgressDlg) then
-//    FreeAndNil(WipeProgressDlg);
 end;
 
 procedure InitPRNG;
 var
-  sg: TSeedGatherer;
+  seed: array[0..255] of Cardinal;
+  i: integer;
 begin
-{$ifdef USE_ISAAC}
-  sg := TSeedGatherer.Create(true, true,
-{$ifdef USE_SEEDFILE}
-  GetRandomSeedFile
-{$else}
-  ''
-{$endif});
-  try
-    gIsaac := TIsaac.Create(sg.Seed);
-  finally
-    sg.Free;
-  end;
-{$else}
   Randomize;
-{$endif}
+  for i := 0 to 255 do begin
+    seed[i] := Random(MAXINT);
+  end;
+  gIsaac := TIsaac.Create(seed);
 end;
 
 
@@ -515,12 +457,7 @@ initialization
   InitPRNG;
   
 finalization
-{$ifdef USE_ISAAC}
-  {$ifdef USE_SEEDFILE}
-    gIsaac.UpdateSeedFile(GetRandomSeedFile);
-  {$endif}
   FreeAndNil(gIsaac);
-{$endif}
-  
+
 end.
 
