@@ -1,5 +1,7 @@
 program wipe;
 
+{$I wipe.inc}
+
 {$IFDEF WINDOWS}
 {$APPTYPE CONSOLE}
 {$ENDIF}
@@ -143,10 +145,12 @@ begin
     end;
     WipeFile(Files[0], Mode)
   end else if FilesCount > 1 then begin
-    WriteLn(Format('Really delete %d files (y/n)?', [FilesCount]));
-    ReadLn(Answer);
-    if (Answer <> 'y') and (Answer <> 'Y') then
-      Halt(1);
+    if not Force then begin
+      WriteLn(Format('Really delete %d files (y/n)?', [FilesCount]));
+      ReadLn(Answer);
+      if (Answer <> 'y') and (Answer <> 'Y') then
+        Halt(1);
+    end;
     WipeFiles(Files, Mode);
   end;
 end.

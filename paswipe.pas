@@ -32,7 +32,7 @@
 
 unit paswipe;
 
-{$DEFINE PROFILE}
+{$I wipe.inc}
 
 interface
 
@@ -134,6 +134,7 @@ begin
       pt := Trunc((total_bytes_written / total_size) * 100)
     else
       pt := 0;
+    abort := false;
     gProgressProc(pf, pt, WipeType, ACurFile, abort);
     gAbort := abort;
   end;
@@ -145,6 +146,10 @@ begin
   if gAbort then
     Exit;
   Result := RemoveDir(ADir);
+  if not Result then begin
+    Sleep(100);
+    Result := RemoveDir(ADir);
+  end;
 end;
 
 function WipeDeleteFile(F: PWipeFile): boolean;
@@ -252,7 +257,6 @@ var
   wf: PWipeFile;
 {$ifdef PROFILE}
   start_tick: Cardinal;
-  ticks: Cardinal;
 {$endif}
 begin
   Result := false;
@@ -288,12 +292,12 @@ begin
     case Mode of
       wmSimple:
         begin
-          progress_size := wf^.Size * 2;
+          progress_size := Int64(wf^.Size) * 2;
           OverwriteRandom(2, wf);
         end;
       wmDod:
         begin
-          progress_size := wf^.Size * 5;
+          progress_size := Int64(wf^.Size) * 5;
           OverwriteRandom(1, wf);
           OverwriteByte(not 1 and $FF, wf);
           OverwriteRandom(1, wf);
@@ -309,7 +313,7 @@ begin
         // to DoD-algorithm.
         //
         if (wf^.Size > 60817408) then begin
-          progress_size := wf^.Size * 5;
+          progress_size := Int64(wf^.Size) * 5;
           OverwriteRandom(1, wf);
           OverwriteByte(not 1 and $FF, wf);
           OverwriteRandom(1, wf);
@@ -318,7 +322,7 @@ begin
         end else begin
         //begin
         // modified by vitus in 201211    ---- END ----
-          progress_size := wf^.Size * 35;
+          progress_size := Int64(wf^.Size) * 35;
           OverwriteRandom(4, wf);
           OverwriteByte($55, wf);
           OverwriteByte($AA, wf);
@@ -362,7 +366,7 @@ begin
     FillChar(wf^.Buffer, wf^.BuffSize, 0);   // Burn Memory
     Dispose(wf);
 {$ifdef PROFILE}
-    gTicks := {$IFDEF FPC}LCLIntf.{$ENDIF}GetTickCount - start_tick;
+    Inc(gTicks, {$IFDEF FPC}LCLIntf.{$ENDIF}GetTickCount - start_tick);
 {$endif}
   end else if DirectoryExists(Filename) then begin
     Result := WipeDeleteDir(Filename);
