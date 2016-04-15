@@ -1,11 +1,5 @@
 unit isaac;
 
-// Undefine this to use the default Random number generator
-{$define USE_ISAAC}
-
-// Use a Random seed file (*.rnd)
-{$define USE_SEEDFILE}
-
 // These must be off, never ever turn it on!!!
 {$OVERFLOWCHECKS OFF}
 {$RANGECHECKS OFF}
