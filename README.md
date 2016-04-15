@@ -2,6 +2,10 @@
 
 a commanline program to securely delete files.
 
+## License
+
+WEL
+
 ## Usage
 
 ~~~
