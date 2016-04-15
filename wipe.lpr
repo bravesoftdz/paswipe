@@ -5,9 +5,6 @@ program wipe;
 {$IFDEF WINDOWS}
 {$APPTYPE CONSOLE}
 {$ENDIF}
-{$IFDEF FPC}
-{$mode objfpc}{$H+}
-{$ENDIF}
 
 uses
   {$IFDEF FPC}
@@ -25,6 +22,7 @@ var
   FilesCount: integer = 0;
   LastFile: string = '';
   Force: boolean = false;
+  Silent: boolean = false;
 
 function GetFullName(const Path, Name: string): string;
 begin
@@ -60,13 +58,14 @@ end;
 
 procedure ShowHelp;
 begin
-  WriteLn('wipe [-m <mode>] [-f] [-h|-?] <files...>');
+  WriteLn('wipe [-m <mode>] [-f] [-s] [-h|-?] <files...>');
   WriteLn('mode:');
   WriteLn('  delete, d: delete');
   WriteLn('  simple, s: simple overwrite');
   WriteLn('  dod: DOD overwrite');
   WriteLn('  gutmann, g: Gutmann overwrite');
   WriteLn('f: force');
+  WriteLn('s: silent');
   WriteLn('files: File list');
   WriteLn('h, ?: Show help');
   WriteLn('Example:');
@@ -101,6 +100,8 @@ begin
       end;
     end else if s = '-f' then begin
       Force := true;
+    end else if s = '-s' then begin
+      Silent := true;
     end else if (s = '-h') or (s = '-?') then begin
       ShowHelp;
       Halt(0);
@@ -116,13 +117,15 @@ procedure Progress(const Value, Total: Int64; const WipeType: TWipeType;
   const CurFile: string; var Abort: boolean);
 begin
   Abort := false;
-  if LastFile <> CurFile then begin
-    LastFile := CurFile;
-    case WipeType of
-      wtDeleteFile:
-        WriteLn(Format('Deleting file %s', [CurFile]));
-      wtRemoveDir:
-        WriteLn(Format('Removing directory %s', [CurFile]));
+  if not Silent then begin
+    if (LastFile <> CurFile) then begin
+      LastFile := CurFile;
+      case WipeType of
+        wtDeleteFile:
+          WriteLn(Format('Deleting file %s', [CurFile]));
+        wtRemoveDir:
+          WriteLn(Format('Removing directory %s', [CurFile]));
+      end;
     end;
   end;
 end;

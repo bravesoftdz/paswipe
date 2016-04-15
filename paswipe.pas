@@ -49,24 +49,10 @@ function WipeFiles(const Files: array of string; const Mode: TWipeMode): boolean
 function WipeFile(const Filename: string; const Mode: TWipeMode): boolean;
 procedure WipeSetProgressProc(Proc: TProgressProc);
 
-{$ifdef PROFILE}
-var
-  gTicks: Int64 = 0;
-{$ENDIF}
-
 implementation
 
 uses
-  FileUtil,
-  isaac
-{$ifdef PROFILE}
-  {$IFDEF FPC}
-  , LCLIntf
-  {$ELSE}
-  , Windows
-  {$ENDIF}
-{$endif}
-  ;
+  isaac;
   
 const
   WipeBuffSize = 4095;    { 4 KB }
@@ -255,18 +241,12 @@ end;
 function WipeFile(const Filename: string; const Mode: TWipeMode): boolean;
 var
   wf: PWipeFile;
-{$ifdef PROFILE}
-  start_tick: Cardinal;
-{$endif}
 begin
   Result := false;
   if gAbort then begin
     Exit;
   end;
   if FileExists(Filename) and (not DirectoryExists(Filename)) then begin
-{$ifdef PROFILE}
-    start_tick := {$IFDEF FPC}LCLIntf.{$ENDIF}GetTickCount;
-{$endif}
     UpdateProgress(0, wtDeleteFile, Filename);
     if gAbort then
       Exit;
@@ -365,9 +345,6 @@ begin
     Result := WipeDeleteFile(wf);            // Rename and Delete the file
     FillChar(wf^.Buffer, wf^.BuffSize, 0);   // Burn Memory
     Dispose(wf);
-{$ifdef PROFILE}
-    Inc(gTicks, {$IFDEF FPC}LCLIntf.{$ENDIF}GetTickCount - start_tick);
-{$endif}
   end else if DirectoryExists(Filename) then begin
     Result := WipeDeleteDir(Filename);
   end;
