@@ -1,10 +1,18 @@
 # Wipe
 
-a commanline program to securely delete files.
+A commanline program to securely delete files.
 
 ## License
 
 WEL
+
+## Compatibility
+
+OS
+: Windows, Linux
+
+Compiler
+: Free Pascal
 
 ## Usage
 
