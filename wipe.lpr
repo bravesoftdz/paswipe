@@ -62,12 +62,12 @@ begin
   WriteLn('mode:');
   WriteLn('  delete, d: delete');
   WriteLn('  simple, s: simple overwrite');
-  WriteLn('  dod: DOD overwrite');
+  WriteLn('  dod: DOD overwrite (default)');
   WriteLn('  gutmann, g: Gutmann overwrite');
   WriteLn('f: force');
   WriteLn('s: silent');
-  WriteLn('files: File list');
   WriteLn('h, ?: Show help');
+  WriteLn('files: File list');
   WriteLn('Example:');
   WriteLn('  wipe -m gutmann -f delete.me');
 end;
@@ -114,9 +114,10 @@ begin
 end;
 
 procedure Progress(const Value, Total: Int64; const WipeType: TWipeType;
-  const CurFile: string; var Abort: boolean);
+  const CurFile: string; var Skip, Abort: boolean);
 begin
   Abort := false;
+  Skip := false;
   if not Silent then begin
     if (LastFile <> CurFile) then begin
       LastFile := CurFile;

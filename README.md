@@ -4,7 +4,7 @@ A commanline program to securely delete files.
 
 ## License
 
-WEL
+GPL
 
 ## Compatibility
 

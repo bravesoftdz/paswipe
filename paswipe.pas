@@ -43,7 +43,7 @@ type
   TWipeMode = (wmDelete, wmSimple, wmDod, wmGutmann);
   TWipeType = (wtDeleteFile, wtRemoveDir);
   TProgressProc = procedure(const Value, Total: Int64; const WipeType: TWipeType;
-    const CurFile: string; var Abort: boolean);
+    const CurFile: string; var Skip, Abort: boolean);
 
 function WipeFiles(const Files: array of string; const Mode: TWipeMode): boolean;
 function WipeFile(const Filename: string; const Mode: TWipeMode): boolean;
@@ -102,7 +102,7 @@ var
   total_size, total_bytes_written: Int64;
 
 procedure UpdateProgress(const Size: Int64; const WipeType: TWipeType;
-  const ACurFile: string);
+  const ACurFile: string; var Skip: boolean);
 var
   pf, pt: Int64;
   abort: boolean;
@@ -121,14 +121,16 @@ begin
     else
       pt := 0;
     abort := false;
-    gProgressProc(pf, pt, WipeType, ACurFile, abort);
+    gProgressProc(pf, pt, WipeType, ACurFile, abort, Skip);
     gAbort := abort;
   end;
 end;
 
 function WipeDeleteDir(const ADir: string): boolean;
+var
+  skip: boolean;
 begin
-  UpdateProgress(0, wtRemoveDir, ADir);
+  UpdateProgress(0, wtRemoveDir, ADir, skip);
   if gAbort then
     Exit;
   Result := RemoveDir(ADir);
@@ -161,7 +163,7 @@ var
   snewname, path: string;
 begin
   // Rename and delete the file
-  path := IncludeTrailingBackslash(F^.Path);
+  path := IncludeTrailingPathDelimiter(F^.Path);
   repeat
     snewname := MakeName;
   until not FileExists(path + snewname);
@@ -175,17 +177,17 @@ end;
 procedure Overwrite(F: PWipeFile);
 var
   blocks, remain: integer;
-  abort: boolean;
   written: Int64;
+  skip: boolean;
 begin
-  abort := false;
   // Overwrite the file with F.Buffer
   blocks := F^.Size div F^.BuffSize;
   remain := F^.Size mod F^.BuffSize;
+  skip := false;
   Seek(F^.Fi, 0);
   while blocks > 0 do begin
     written := F^.BuffSize;
-    UpdateProgress(written, wtDeleteFile, IncludeTrailingBackslash(F^.Path) + F^.Name);
+    UpdateProgress(written, wtDeleteFile, IncludeTrailingPathDelimiter(F^.Path) + F^.Name, skip);
     if gAbort then
       Exit;
     BlockWrite(F^.Fi, F^.Buffer, written);
@@ -193,8 +195,8 @@ begin
       Break;
     Dec(blocks);
   end;
-  if (remain > 0) and (not abort) then begin
-    UpdateProgress(remain, wtDeleteFile, IncludeTrailingBackslash(F^.Path) + F^.Name);
+  if (remain > 0) and (not gAbort) then begin
+    UpdateProgress(remain, wtDeleteFile, IncludeTrailingPathDelimiter(F^.Path) + F^.Name, skip);
     if gAbort then
       Exit;
     BlockWrite(F^.Fi, F^.Buffer, remain);
@@ -241,14 +243,15 @@ end;
 function WipeFile(const Filename: string; const Mode: TWipeMode): boolean;
 var
   wf: PWipeFile;
+  skip: boolean;
 begin
   Result := false;
   if gAbort then begin
     Exit;
   end;
   if FileExists(Filename) and (not DirectoryExists(Filename)) then begin
-    UpdateProgress(0, wtDeleteFile, Filename);
-    if gAbort then
+    UpdateProgress(0, wtDeleteFile, Filename, skip);
+    if skip or gAbort then
       Exit;
     FileSetAttr(Filename, 0);
     New(wf);
@@ -355,11 +358,11 @@ var
   r: TSearchRec;
 begin
   if DirectoryExists(AName) then begin
-    if FindFirst(IncludeTrailingBackslash(AName) + '*.*', faAnyFile, r) = 0 then begin
+    if FindFirst(IncludeTrailingPathDelimiter(AName) + '*.*', faAnyFile, r) = 0 then begin
       repeat
         if (r.Name = '.') or (r.Name = '..') then
           Continue;
-        FindFiles(IncludeTrailingBackslash(AName) + r.Name, Files);
+        FindFiles(IncludeTrailingPathDelimiter(AName) + r.Name, Files);
       until FindNext(r) <> 0;
       SysUtils.FindClose(r);
       // if i'm a directory add me as last
