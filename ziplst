@@ -4,5 +4,6 @@
 *.lpr
 *.bat
 *.inc
+*.md
 ziplst
 LICENSE
