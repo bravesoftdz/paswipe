@@ -16,6 +16,9 @@ uses
   { you can add units after this }
   , paswipe;
 
+const
+  VERSION = '20160417';
+
 var
   Mode: TWipeMode = wmDod;
   Files: array of string;
@@ -56,9 +59,17 @@ begin
   end;
 end;
 
+procedure ShowVersion;
+begin
+  WriteLn('wipe v. ' + VERSION);
+  WriteLn('by sa');
+  WriteLn('Compiled ' + {$i %DATE%} + ' ' + {$i %TIME%});
+  WriteLn('with FPC ' + {$i %FPCVERSION%} + ' for ' + {$I %FPCTARGETOS%} + ' on ' + {$I %FPCTARGETCPU%});
+end;
+
 procedure ShowHelp;
 begin
-  WriteLn('wipe [-m <mode>] [-f] [-s] [-h|-?] <files...>');
+  WriteLn('wipe [-m <mode>] [-f] [-s] [-h|-?] [-v] <files...>');
   WriteLn('mode:');
   WriteLn('  delete, d: delete');
   WriteLn('  simple, s: simple overwrite');
@@ -67,6 +78,7 @@ begin
   WriteLn('f: force');
   WriteLn('s: silent');
   WriteLn('h, ?: Show help');
+  WriteLn('v: Show version');
   WriteLn('files: File list');
   WriteLn('Example:');
   WriteLn('  wipe -m gutmann -f delete.me');
@@ -105,7 +117,10 @@ begin
     end else if (s = '-h') or (s = '-?') then begin
       ShowHelp;
       Halt(0);
-    end else begin
+    end else if (s = '-v') then begin
+      ShowVersion;
+      Halt(0);
+    end else if s <> '' then begin
       Result := true;
       AddFiles(s);
     end;
